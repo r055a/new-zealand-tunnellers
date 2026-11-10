@@ -1,0 +1,73 @@
+name: CI-PR
+
+on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HUSKY: 0
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7.0.1
+
+      - name: Setup node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run prettier:check
+
+      - name: Run test
+        run: npm run test
+
+  build-production:
+    runs-on: ubuntu-latest
+    needs: checks
+    timeout-minutes: 60
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1
+    env:
+      HUSKY: 0
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v7.0.1
+
+      - name: Setup node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Next.js build
+        uses: actions/cache@v6
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-
+
+      - name: Build web app (compile only)
+        run: |
+          npx next build --experimental-build-mode compile
+          npx tsc --project tsconfig.server.json
